@@ -1,0 +1,52 @@
+# Deployment frontend — nginx serving the UI and proxying /api/* to the internal Services.
+# Teaches: Phase 2 — reach it via port-forward before the Ingress exists; Phase 4 — the Ingress sends ALL
+#   external traffic here (one gateway). nginx.conf has no docker `resolver` hack — Service IPs/DNS in k8s
+#   are stable.
+# Commands:
+#   kubectl apply -f .k8s/manifests/18-frontend.yaml
+#   kubectl port-forward -n k8slab svc/frontend 8081:80   # then open http://localhost:8081
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: k8slab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+        app.kubernetes.io/part-of: k8slab
+    spec:
+      containers:
+      - name: frontend
+        image: k8slab/frontend:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 80
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10

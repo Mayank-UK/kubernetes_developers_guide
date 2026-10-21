@@ -1,0 +1,59 @@
+# Deployment facts — the lab's main workload and HPA target.
+# Teaches: Phase 2 — a controller keeps N replicas alive (delete a pod, watch it come back);
+#   Phase 3 — env from ConfigMap, readiness/liveness probes, resource requests/limits;
+#   Phase 5 — the HPA (40-hpa.yaml) scales THIS Deployment; the tiny CPU request makes the signal strong.
+# Commands:
+#   kubectl apply -f .k8s/manifests/10-facts.yaml
+#   kubectl delete pod -n k8slab -l app.kubernetes.io/name=facts   # self-healing demo
+#   kubectl scale deployment facts -n k8slab --replicas=3 && kubectl get pods -n k8slab -w
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: facts
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: facts
+    app.kubernetes.io/part-of: k8slab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: facts
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: facts
+        app.kubernetes.io/part-of: k8slab
+    spec:
+      containers:
+      - name: facts
+        image: k8slab/facts:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+        env:
+        - name: COUNTER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: k8slab-config
+              key: COUNTER_URL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10

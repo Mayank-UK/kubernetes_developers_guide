@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>docker playground — facts · counter · image</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #f1f5f9;
+    color: #0f172a;
+    /* keep clear of the fixed corner diagram */
+    padding-bottom: 250px;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 20px 0; }
+  h1 { font-size: 1.45rem; margin: 0 0 4px; }
+  .sub { margin: 0 0 20px; color: #475569; font-size: .92rem; }
+  .sub a { color: #1d4ed8; }
+
+  form { display: flex; gap: 8px; max-width: 580px; }
+  input[type="text"] {
+    flex: 1; padding: 10px 12px; font-size: 1rem;
+    border: 1px solid #cbd5e1; border-radius: 8px; background: #fff;
+  }
+  button {
+    padding: 10px 24px; font-size: 1rem; cursor: pointer;
+    border: 0; border-radius: 8px; background: #0f172a; color: #fff;
+  }
+  button:hover { background: #1e293b; }
+  .empty-msg { color: #b91c1c; font-size: .9rem; margin: 10px 0 0; }
+
+  .cards {
+    display: grid; gap: 16px; margin-top: 22px;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; }
+  .pill {
+    display: inline-block; font-size: .72rem; font-weight: 600;
+    letter-spacing: .02em; padding: 3px 10px; border-radius: 999px;
+  }
+  .pill-facts   { background: #e0e7ff; color: #3730a3; }
+  .pill-counter { background: #fef3c7; color: #92400e; }
+  .pill-image   { background: #ccfbf1; color: #115e59; }
+  .pill-load    { background: #ffe4e6; color: #9f1239; }
+  .card-body { margin-top: 10px; font-size: .93rem; color: #334155; min-height: 64px; }
+  .card-body p { margin: 0 0 8px; line-height: 1.45; }
+  .card-body a { color: #1d4ed8; word-break: break-all; }
+  .card-body .row {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding: 3px 0; border-bottom: 1px dashed #e2e8f0;
+    font-variant-numeric: tabular-nums;
+  }
+  .card-body .row:last-child { border-bottom: 0; }
+  .card-body .row b { color: #0f172a; }
+  .is-error { color: #b91c1c; }
+  .result-img { max-width: 100%; height: auto; border-radius: 6px; display: block; }
+  .load-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 14px; }
+  .load-controls label { font-size: .85rem; color: #475569; }
+  .load-controls select {
+    padding: 6px 8px; font-size: .9rem; margin-left: 4px;
+    border: 1px solid #cbd5e1; border-radius: 8px; background: #fff;
+  }
+  .load-controls button { padding: 8px 16px; font-size: .88rem; }
+  .load-line { margin: 10px 0 0; font-variant-numeric: tabular-nums; }
+
+  /* load simulator control panel — visually detached from the result cards */
+  .load-panel {
+    margin-top: 36px; padding: 18px 20px 20px;
+    background: #f8fafc; border: 1px solid #cbd5e1;
+    border-left: 4px solid #e11d48; border-radius: 10px;
+  }
+  .load-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .load-head h2 { margin: 0; font-size: 1.12rem; }
+  .load-desc { margin: 10px 0 0; font-size: .93rem; color: #334155; line-height: 1.45; }
+  .load-hint { margin: 6px 0 0; font-size: .85rem; color: #475569; }
+  .load-hint code {
+    padding: 1px 6px; font-size: .8rem;
+    background: #e2e8f0; color: #0f172a; border-radius: 6px;
+  }
+  .load-field { display: flex; flex-direction: column; gap: 4px; }
+  .load-field-hint {
+    margin: 0; max-width: 300px; font-size: .78rem;
+    color: #475569; line-height: 1.4;
+  }
+
+  /* running-state badge + active panel */
+  .load-badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 12px 0 0; padding: 4px 12px; border-radius: 999px;
+    background: #e11d48; color: #fff;
+    font-size: .74rem; font-weight: 600; letter-spacing: .03em;
+    font-variant-numeric: tabular-nums;
+  }
+  .load-badge[hidden] { display: none; }
+  .load-badge::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%;
+    background: #fff; animation: load-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes load-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .35; transform: scale(.72); }
+  }
+  .load-panel.is-active { background: #fff1f2; border-color: #fecdd3; }
+  .load-controls button:disabled,
+  .load-controls button:disabled:hover { background: #94a3b8; cursor: not-allowed; }
+  .load-controls button.load-stop-active,
+  .load-controls button.load-stop-active:hover { background: #e11d48; }
+
+  /* corner topology diagram */
+  .topology {
+    position: fixed; right: 12px; bottom: 12px; width: 260px;
+    background: rgba(255, 255, 255, .93); border: 1px solid #e2e8f0;
+    border-radius: 10px; padding: 6px 8px 8px;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, .08);
+  }
+  .topology .cap { margin: 0 0 2px; font-size: .68rem; color: #64748b; text-align: center; }
+  .topology svg { display: block; width: 100%; height: auto; }
+  svg .node { fill: #f8fafc; stroke: #64748b; stroke-width: 1; }
+  svg .node-label { font-size: 10px; fill: #0f172a; text-anchor: middle; }
+  svg .node-small  { font-size: 7px; fill: #64748b; text-anchor: middle; }
+  svg .arrow { stroke: #94a3b8; stroke-width: 1.5; fill: none; }
+  svg .arrow .head { fill: #94a3b8; stroke: none; }
+  svg .arrow.active { stroke: #16a34a; stroke-width: 2.6; }
+  svg .arrow.active .head { fill: #16a34a; }
+</style>
+</head>
+<body>
+<main>
+  <h1>topic → facts · counter · image</h1>
+  <p class="sub">one topic fans out to three microservices through this nginx proxy · <a href="/">Guide →</a></p>
+
+  <form id="topic-form">
+    <input id="topic" type="text" placeholder="type a topic, e.g. octopus" autocomplete="off" autofocus>
+    <button type="submit">Go</button>
+  </form>
+  <p id="empty-msg" class="empty-msg" hidden>please type a topic first</p>
+
+  <section class="cards">
+    <article class="card">
+      <span class="pill pill-facts">facts · FastAPI</span>
+      <div id="facts-body" class="card-body">type a topic and hit Go</div>
+    </article>
+    <article class="card">
+      <span class="pill pill-counter">counter · Express (called by facts)</span>
+      <div id="counter-body" class="card-body">waiting…</div>
+    </article>
+    <article class="card">
+      <span class="pill pill-image">image · Go</span>
+      <div id="image-body" class="card-body">waiting…</div>
+    </article>
+  </section>
+
+  <section class="load-panel" aria-label="load simulator controls">
+    <div class="load-head">
+      <h2>Load Simulator — autoscaling demo</h2>
+      <span class="pill pill-load">load · by loadgen (Node)</span>
+    </div>
+    <p class="load-desc">
+      Generates real CPU load against the facts service. The autoscaler (HPA)
+      notices within ~15–30s and adds facts pods; they drain away about a
+      minute after the load stops.
+    </p>
+    <p class="load-hint">
+      Nothing else to configure — pick a duration and concurrency, press
+      Start Load, and watch <code>kubectl -n k8slab get hpa -w</code> in a
+      terminal.
+    </p>
+    <div class="load-controls">
+      <div class="load-field">
+        <label>duration
+          <select id="load-duration">
+            <option value="30">30s</option>
+            <option value="60" selected>60s</option>
+            <option value="120">120s</option>
+          </select>
+        </label>
+        <p class="load-field-hint">How long the load runs — HPA samples CPU every ~15s, so 60s+ gives the full demo.</p>
+      </div>
+      <div class="load-field">
+        <label>concurrency
+          <select id="load-concurrency">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="20">20</option>
+            <option value="40">40</option>
+          </select>
+        </label>
+        <p class="load-field-hint">Requests in flight at once — the intensity dial that drives CPU up; 20 is a good show.</p>
+      </div>
+      <button id="load-start" type="button">Start Load</button>
+      <button id="load-stop" type="button">Stop Load</button>
+    </div>
+    <span id="load-badge" class="load-badge" hidden>LOAD ACTIVE</span>
+    <p id="load-status" class="load-line">load status: unknown</p>
+    <p id="load-replicas" class="load-line">facts replicas: —</p>
+  </section>
+</main>
+
+<div class="topology">
+  <p class="cap">service topology</p>
+  <svg viewBox="0 0 260 170" role="img" aria-label="service topology: browser calls facts and image; facts calls counter; image calls the internet">
+    <!-- arrows first so node boxes sit on top -->
+    <g id="a-browser-facts" class="arrow">
+      <line x1="120" y1="68" x2="120" y2="40"></line>
+      <polygon class="head" points="120,32 116.5,39 123.5,39"></polygon>
+    </g>
+    <g id="a-facts-counter" class="arrow">
+      <line x1="152" y1="19" x2="184" y2="19"></line>
+      <polygon class="head" points="190,19 183,15.5 183,22.5"></polygon>
+    </g>
+    <g id="a-browser-image" class="arrow">
+      <line x1="120" y1="94" x2="120" y2="122"></line>
+      <polygon class="head" points="120,130 116.5,123 123.5,123"></polygon>
+    </g>
+    <g id="a-image-net" class="arrow">
+      <line x1="152" y1="143" x2="175" y2="143"></line>
+      <polygon class="head" points="182,143 175,139.5 175,146.5"></polygon>
+    </g>
+    <!-- nodes -->
+    <rect class="node" x="88" y="6" width="64" height="26" rx="5"></rect>
+    <text class="node-label" x="120" y="22">facts</text>
+    <rect class="node" x="190" y="6" width="62" height="26" rx="5"></rect>
+    <text class="node-label" x="221" y="22">counter</text>
+    <rect class="node" x="88" y="68" width="64" height="26" rx="5"></rect>
+    <text class="node-label" x="120" y="84">browser</text>
+    <rect class="node" x="88" y="130" width="64" height="26" rx="5"></rect>
+    <text class="node-label" x="120" y="146">image</text>
+    <rect class="node" x="182" y="120" width="76" height="46" rx="5"></rect>
+    <text class="node-label" x="220" y="135">internet</text>
+    <text class="node-small" x="220" y="147">(Wikipedia /</text>
+    <text class="node-small" x="220" y="156">Commons)</text>
+  </svg>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var form = document.getElementById('topic-form');
+  var input = document.getElementById('topic');
+  var emptyMsg = document.getElementById('empty-msg');
+  var factsBody = document.getElementById('facts-body');
+  var counterBody = document.getElementById('counter-body');
+  var imageBody = document.getElementById('image-body');
+  var ARROWS = ['a-browser-facts', 'a-facts-counter', 'a-browser-image', 'a-image-net'];
+  var HTTP = /^https?:\/\//i;
+
+  function setActive(on) {
+    ARROWS.forEach(function (id) {
+      document.getElementById(id).classList.toggle('active', on);
+    });
+  }
+  function showMsg(el, text, isError) {
+    el.replaceChildren();
+    el.classList.toggle('is-error', !!isError);
+    el.textContent = text;
+  }
+  function safeUrl(u) {
+    return (typeof u === 'string' && HTTP.test(u)) ? u : null;
+  }
+  function fetchJson(url) {
+    return fetch(url).then(function (res) {
+      if (!res.ok) {
+        throw new Error('HTTP ' + res.status + (res.statusText ? ' ' + res.statusText : '') + ' — is that service up?');
+      }
+      return res.json().catch(function () {
+        throw new Error('service returned invalid JSON');
+      });
+    }, function (e) {
+      throw new Error('fetch failed: ' + e.message);
+    });
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var topic = input.value.trim();
+    if (!topic) { emptyMsg.hidden = false; input.focus(); return; }
+    emptyMsg.hidden = true;
+
+    showMsg(factsBody, 'asking facts…');
+    showMsg(counterBody, 'waiting for facts…');
+    showMsg(imageBody, 'asking image…');
+    setActive(true);
+
+    var q = encodeURIComponent(topic);
+    var factsP = fetchJson('/api/facts?topic=' + q);
+    var imageP = fetchJson('/api/image?topic=' + q);
+
+    factsP.then(function (data) {
+      renderFacts(data);
+    }, function (err) {
+      showMsg(factsBody, 'facts error: ' + err.message, true);
+      showMsg(counterBody, 'counter unreachable');
+    });
+    imageP.then(function (data) {
+      renderImage(data);
+    }, function (err) {
+      showMsg(imageBody, 'image error: ' + err.message, true);
+    });
+    Promise.allSettled([factsP, imageP]).then(function () {
+      setActive(false);
+    });
+  });
+
+  // hide the empty-input hint as soon as the user types again
+  input.addEventListener('input', function () { emptyMsg.hidden = true; });
+
+  function renderFacts(data) {
+    factsBody.replaceChildren();
+    factsBody.classList.remove('is-error');
+    var p = document.createElement('p');
+    p.textContent = (data && typeof data.facts === 'string' && data.facts)
+      ? data.facts
+      : '(facts service returned no text)';
+    factsBody.appendChild(p);
+    var src = data && safeUrl(data.sourceUrl);
+    if (src) {
+      var a = document.createElement('a');
+      a.href = src;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = src;
+      factsBody.appendChild(a);
+    }
+    var c = data && data.counts;
+    if (c && (c.words != null || c.characters != null || c.uniqueWords != null)) {
+      counterBody.replaceChildren();
+      counterBody.classList.remove('is-error');
+      ['words', 'characters', 'uniqueWords'].forEach(function (k) {
+        var row = document.createElement('div');
+        row.className = 'row';
+        var key = document.createElement('span');
+        key.textContent = k;
+        var val = document.createElement('b');
+        val.textContent = String(c[k]);
+        row.appendChild(key);
+        row.appendChild(val);
+        counterBody.appendChild(row);
+      });
+    } else {
+      showMsg(counterBody, 'counter unreachable');
+    }
+  }
+
+  function renderImage(data) {
+    imageBody.replaceChildren();
+    imageBody.classList.remove('is-error');
+    var url = data && safeUrl(data.imageUrl);
+    if (url) {
+      var img = document.createElement('img');
+      img.src = url;
+      img.alt = (data.pageTitle != null) ? String(data.pageTitle) : 'image for the topic';
+      img.className = 'result-img';
+      img.onerror = function () { showMsg(imageBody, 'image failed to load: ' + url, true); };
+      imageBody.appendChild(img);
+    } else {
+      showMsg(imageBody, 'no image found');
+    }
+  }
+
+  // Load card: drives the loadgen service so autoscaling demos are UI-driven.
+  var loadStatusEl = document.getElementById('load-status');
+  var loadReplicasEl = document.getElementById('load-replicas');
+  var loadBadge = document.getElementById('load-badge');
+  var loadStartBtn = document.getElementById('load-start');
+  var loadStopBtn = document.getElementById('load-stop');
+  var loadPanel = document.querySelector('.load-panel');
+
+  function postJson(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (!res.ok) {
+        throw new Error('HTTP ' + res.status + (res.statusText ? ' ' + res.statusText : ''));
+      }
+      return res.json().catch(function () {
+        throw new Error('service returned invalid JSON');
+      });
+    }, function (e) {
+      throw new Error('fetch failed: ' + e.message);
+    });
+  }
+
+  document.getElementById('load-start').addEventListener('click', function () {
+    loadStatusEl.classList.remove('is-error');
+    loadStatusEl.textContent = 'starting load…';
+    postJson('/api/load/start', {
+      durationSec: Number(document.getElementById('load-duration').value),
+      concurrency: Number(document.getElementById('load-concurrency').value)
+    }).then(null, function (err) {
+      loadStatusEl.classList.add('is-error');
+      loadStatusEl.textContent = 'loadgen error: ' + err.message;
+    });
+  });
+
+  document.getElementById('load-stop').addEventListener('click', function () {
+    loadStatusEl.classList.remove('is-error');
+    loadStatusEl.textContent = 'stopping load…';
+    postJson('/api/load/stop', {}).then(null, function (err) {
+      loadStatusEl.classList.add('is-error');
+      loadStatusEl.textContent = 'loadgen error: ' + err.message;
+    });
+  });
+
+  // Running-state visuals: badge + button states, driven by the status poll.
+  // startedAt is an ISO string; remaining time comes from the poll tick.
+  function setLoadActive(on, s) {
+    loadPanel.classList.toggle('is-active', on);
+    loadBadge.hidden = !on;
+    loadStartBtn.disabled = on;
+    loadStopBtn.classList.toggle('load-stop-active', on);
+    if (!on) return;
+    var msLeft = null;
+    if (s && s.startedAt && s.durationSec != null) {
+      var endMs = Date.parse(s.startedAt) + s.durationSec * 1000;
+      if (!isNaN(endMs)) {
+        msLeft = Math.min(Math.max(endMs - Date.now(), 0), s.durationSec * 1000);
+      }
+    }
+    loadBadge.textContent = (msLeft == null)
+      ? 'LOAD ACTIVE'
+      : 'LOAD ACTIVE · ' + Math.ceil(msLeft / 1000) + 's left';
+  }
+
+  function pollLoadStatus() {
+    fetchJson('/api/load/status').then(function (s) {
+      var running = !!(s && s.running);
+      var sent = (s && s.requestsSent != null) ? s.requestsSent : 0;
+      setLoadActive(running, s);
+      loadStatusEl.classList.remove('is-error');
+      loadStatusEl.textContent = running
+        ? 'running — ' + sent + ' requests sent'
+        : 'idle — ' + sent + ' requests sent';
+    }, function () {
+      setLoadActive(false);
+      loadStatusEl.classList.add('is-error');
+      loadStatusEl.textContent = 'loadgen unreachable';
+    });
+  }
+
+  function pollLoadReplicas() {
+    fetchJson('/api/load/replicas').then(function (r) {
+      var n = r ? r.replicas : null;
+      loadReplicasEl.textContent = 'facts replicas: ' + (n == null ? '—' : String(n));
+    }, function () {
+      loadReplicasEl.textContent = 'facts replicas: —';
+    });
+  }
+
+  pollLoadStatus();
+  pollLoadReplicas();
+  setInterval(pollLoadStatus, 1000);
+  setInterval(pollLoadReplicas, 2000);
+})();
+</script>
+</body>
+</html>

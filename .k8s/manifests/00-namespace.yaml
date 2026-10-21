@@ -1,0 +1,13 @@
+# Namespace k8slab — every object in this lab lives here.
+# Teaches: Phase 1 — namespaces group and isolate resources; most commands need -n k8slab.
+# Commands:
+#   kubectl apply -f .k8s/manifests/00-namespace.yaml
+#   kubectl get namespaces
+#   kubectl get all -n k8slab
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8slab
+  labels:
+    app.kubernetes.io/name: k8slab
+    app.kubernetes.io/part-of: k8slab

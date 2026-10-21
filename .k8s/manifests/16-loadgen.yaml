@@ -1,0 +1,64 @@
+# Deployment loadgen — in-cluster traffic generator + UI backend for the autoscaling phase.
+# Teaches: Phase 5 — POST /load/start hits facts with concurrent ?spin=true requests to drive CPU up; the
+#   pod also reads the facts Deployment's replica count from the K8s API via its ServiceAccount
+#   (07-loadgen-rbac.yaml). POD_NAMESPACE comes from the downward API (fieldRef), not a hardcoded value.
+# Commands:
+#   kubectl apply -f .k8s/manifests/16-loadgen.yaml
+#   kubectl port-forward -n k8slab svc/loadgen 9000:9000
+#   curl -X POST localhost:9000/load/start -H 'content-type: application/json' -d '{"durationSec":60,"concurrency":4}'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: loadgen
+    app.kubernetes.io/part-of: k8slab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loadgen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loadgen
+        app.kubernetes.io/part-of: k8slab
+    spec:
+      serviceAccountName: loadgen
+      containers:
+      - name: loadgen
+        image: k8slab/loadgen:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 9000
+        env:
+        - name: FACTS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: k8slab-config
+              key: FACTS_URL
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9000
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 10

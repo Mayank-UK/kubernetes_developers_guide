@@ -1,0 +1,52 @@
+# Deployment counter — word/character counter, called by facts (POST /count).
+# Teaches: Phase 2 — scale it and watch facts' requests spread across counter pods (compare logs);
+#   Phase 3 — probes + resources on a second workload for contrast.
+# Commands:
+#   kubectl apply -f .k8s/manifests/12-counter.yaml
+#   kubectl scale deployment counter -n k8slab --replicas=2
+#   kubectl logs -n k8slab -l app.kubernetes.io/name=counter --prefix
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: counter
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: counter
+    app.kubernetes.io/part-of: k8slab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: counter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: counter
+        app.kubernetes.io/part-of: k8slab
+    spec:
+      containers:
+      - name: counter
+        image: k8slab/counter:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 3000
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10

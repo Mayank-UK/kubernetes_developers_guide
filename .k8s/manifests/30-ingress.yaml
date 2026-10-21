@@ -1,0 +1,46 @@
+# Ingress k8slab-ingress — L7 entry point, served by ingress-nginx at http://localhost:8090 (kind
+# extraPortMappings on the ingress-ready control-plane node).
+# Teaches: Phase 4 — path-based HTTP routing. One rule with NO host matches every request: `/` (Prefix)
+#   sends everything to the frontend, which is already the /api gateway (nginx proxies /api/facts,
+#   /api/image, /api/load). One gateway is the standard pattern.
+#   Why not route /api/facts straight to the facts Service here? Ingress paths only MATCH prefixes — they
+#   cannot strip `/api`. The facts app serves `/facts?topic=...`, so a direct path would need a rewrite:
+#     metadata.annotations:
+#       nginx.ingress.kubernetes.io/rewrite-target: /$2
+#     ... path: /api/facts(/|$)(.*)  pathType: ImplementationSpecific
+#   i.e. a second routing layer doing what the frontend nginx already does — hence: don't.
+# Commands:
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+#   kubectl -n ingress-nginx patch deploy ingress-nginx-controller -p '{"spec":{"template":{"spec":{"nodeSelector":{"ingress-ready":"true"}}}}}'   # upstream main no longer pins the ingress-ready node; without this the controller lands on a worker and localhost:8090 stays dark
+#   kubectl get ingress -n k8slab
+#   kubectl describe ingress k8slab-ingress -n k8slab
+#   curl -I http://localhost:8090/
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: k8slab-ingress
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: k8slab-ingress
+    app.kubernetes.io/part-of: k8slab
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 80
+      # Example: a second path sending /api/* to a different backend (here the same frontend) —
+      # uncomment and `kubectl apply` again to watch ingress-nginx reconfigure:
+      # - path: /api
+      #   pathType: Prefix
+      #   backend:
+      #     service:
+      #       name: frontend
+      #       port:
+      #         number: 80

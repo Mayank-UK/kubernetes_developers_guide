@@ -1,0 +1,21 @@
+# Service image (ClusterIP) — the frontend nginx proxies /api/image here.
+# Teaches: Phase 2 — Service-to-Service routing inside the cluster.
+# Commands:
+#   kubectl get svc image -n k8slab
+#   kubectl get endpoints image -n k8slab
+apiVersion: v1
+kind: Service
+metadata:
+  name: image
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: image
+    app.kubernetes.io/part-of: k8slab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: image
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http

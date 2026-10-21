@@ -1,0 +1,47 @@
+# RBAC for loadgen — in-cluster API access, least privilege.
+# Teaches: Phase 5 — loadgen reads the facts Deployment's replica count from the Kubernetes API (to show a
+#   live replica number in the UI) using a dedicated ServiceAccount allowed exactly ONE verb on exactly ONE
+#   resource. This is the standard pattern for any pod that talks to the API server.
+# Commands:
+#   kubectl get serviceaccount,role,rolebinding -n k8slab
+#   kubectl auth can-i get deployments/facts --as=system:serviceaccount:k8slab:loadgen -n k8slab   # yes
+#   kubectl auth can-i list deployments --as=system:serviceaccount:k8slab:loadgen -n k8slab        # no
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loadgen
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: loadgen
+    app.kubernetes.io/part-of: k8slab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: loadgen-facts-reader
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: loadgen-facts-reader
+    app.kubernetes.io/part-of: k8slab
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get"]
+  resourceNames: ["facts"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: loadgen-facts-reader
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: loadgen-facts-reader
+    app.kubernetes.io/part-of: k8slab
+subjects:
+- kind: ServiceAccount
+  name: loadgen
+  namespace: k8slab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: loadgen-facts-reader

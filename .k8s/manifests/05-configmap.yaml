@@ -1,0 +1,17 @@
+# ConfigMap k8slab-config — application config decoupled from images.
+# Teaches: Phase 3 — consumed as env by facts (COUNTER_URL) and loadgen (FACTS_URL) via configMapKeyRef;
+#   change the ConfigMap, restart the Deployment, no image rebuild.
+# Commands:
+#   kubectl get configmap k8slab-config -n k8slab -o yaml
+#   kubectl describe configmap k8slab-config -n k8slab
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8slab-config
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: k8slab-config
+    app.kubernetes.io/part-of: k8slab
+data:
+  COUNTER_URL: http://counter:3000
+  FACTS_URL: http://facts:8000

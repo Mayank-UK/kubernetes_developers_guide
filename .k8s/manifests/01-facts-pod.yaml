@@ -1,0 +1,28 @@
+# RAW Pod running the facts service alone — Phase 1 only; deleted before Phase 2.
+# Teaches: Phase 1 — pods are the smallest deployable unit: apply/get/describe/logs/exec/port-forward.
+#   The label is deliberately `facts-raw` (NOT `facts`) so the later facts Service can never select this pod.
+#   COUNTER_URL points at a Service that does not exist yet — facts only calls it per request, so the pod
+#   starts fine; calls to counter just fail until Phase 2 adds it (teaching point: no cascade crash).
+# Commands:
+#   kubectl apply -f .k8s/manifests/01-facts-pod.yaml
+#   kubectl logs -n k8slab facts-raw
+#   kubectl port-forward -n k8slab pod/facts-raw 8000:8000   # then curl localhost:8000/facts?topic=rocket
+apiVersion: v1
+kind: Pod
+metadata:
+  name: facts-raw
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: facts-raw
+    app.kubernetes.io/part-of: k8slab
+spec:
+  containers:
+  - name: facts
+    image: k8slab/facts:v1
+    imagePullPolicy: IfNotPresent
+    ports:
+    - name: http
+      containerPort: 8000
+    env:
+    - name: COUNTER_URL
+      value: http://counter:3000

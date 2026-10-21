@@ -1,0 +1,24 @@
+# Service facts (ClusterIP) — stable virtual IP + DNS name `facts.k8slab.svc.cluster.local` for facts pods.
+# Teaches: Phase 2 — Services load-balance across the pods their selector matches (the raw facts-raw Pod has
+#   a different label, so it is intentionally never selected). targetPort `http` is the NAMED container port —
+#   rename the port in the Deployment and this stays in sync.
+# Commands:
+#   kubectl get svc facts -n k8slab
+#   kubectl get endpoints facts -n k8slab      # one IP per ready pod
+#   kubectl run curlpod --rm -it --image=curlimages/curl --restart=Never -- curl -s "http://facts:8000/facts?topic=rocket"
+apiVersion: v1
+kind: Service
+metadata:
+  name: facts
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: facts
+    app.kubernetes.io/part-of: k8slab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: facts
+  ports:
+  - name: http
+    port: 8000
+    targetPort: http

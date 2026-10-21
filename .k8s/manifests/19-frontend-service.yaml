@@ -1,0 +1,22 @@
+# Service frontend (ClusterIP) — the only Service the Ingress routes to.
+# Teaches: Phase 4 — the Ingress backend target; the frontend then proxies /api/facts, /api/image and
+#   /api/load to the internal Services.
+# Commands:
+#   kubectl get svc frontend -n k8slab
+#   kubectl get endpoints frontend -n k8slab
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: k8slab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: frontend
+  ports:
+  - name: http
+    port: 80
+    targetPort: http

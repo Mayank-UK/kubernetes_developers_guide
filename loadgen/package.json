@@ -1,0 +1,12 @@
+{
+  "name": "loadgen",
+  "version": "1.0.0",
+  "description": "In-cluster load generator driving the facts service so the HPA demo is UI-controlled",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

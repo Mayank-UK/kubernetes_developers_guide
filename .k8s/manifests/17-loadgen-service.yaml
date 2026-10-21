@@ -1,0 +1,22 @@
+# Service loadgen (ClusterIP) — the frontend nginx proxies /api/load here.
+# Teaches: Phase 5 — reach the load generator through cluster DNS (or the ingress /api/load path) to drive
+#   the HPA demo from the UI.
+# Commands:
+#   kubectl get svc loadgen -n k8slab
+#   kubectl port-forward -n k8slab svc/loadgen 9000:9000
+apiVersion: v1
+kind: Service
+metadata:
+  name: loadgen
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: loadgen
+    app.kubernetes.io/part-of: k8slab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: loadgen
+  ports:
+  - name: http
+    port: 9000
+    targetPort: http

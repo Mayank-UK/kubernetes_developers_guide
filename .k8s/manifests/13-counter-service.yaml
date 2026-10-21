@@ -1,0 +1,22 @@
+# Service counter (ClusterIP) — DNS name `counter` replaces the docker-lab network alias.
+# Teaches: Phase 2 — cluster-internal DNS: facts reaches it as http://counter:3000, exactly the value stored
+#   in the k8slab-config ConfigMap.
+# Commands:
+#   kubectl get svc counter -n k8slab
+#   kubectl get endpoints counter -n k8slab
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: counter
+    app.kubernetes.io/part-of: k8slab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: counter
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http

@@ -1,0 +1,47 @@
+# HorizontalPodAutoscaler facts-hpa — scales the facts Deployment on CPU.
+# Teaches: Phase 5 — target 60% of the 100m CPU request; the UI Load card (loadgen) pushes utilization up,
+#   replicas climb to max 6, then settle back after the 60s scale-down stabilization window. scaleUp is
+#   aggressive (no stabilization, up to +4 pods / 30s) so growth is clearly observable.
+# PREREQUISITE — metrics-server (not installed by default on kind):
+#   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+#   kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+# Commands:
+#   kubectl get hpa -n k8slab -w          # watch during a load run
+#   kubectl describe hpa facts-hpa -n k8slab
+#   kubectl top pods -n k8slab
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: facts-hpa
+  namespace: k8slab
+  labels:
+    app.kubernetes.io/name: facts-hpa
+    app.kubernetes.io/part-of: k8slab
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: facts
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+      - type: Pods
+        value: 4
+        periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
