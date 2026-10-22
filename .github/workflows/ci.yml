@@ -387,7 +387,7 @@ jobs:
                       # indistinguishable — the 2026-10-21 incident deleted
                       # freshly pushed children and broke every pull.
                       local candidates
-                      candidates="$(printf '%s' "$merged" | jq -argjson keep "$keep" '
+                      candidates="$(printf '%s' "$merged" | jq --argjson keep "$keep" '
                           [ .[]
                             | select((.metadata.container.tags // [])
                                  | any(.[]; test("^sha-[0-9a-f]{7}$"))) ]
