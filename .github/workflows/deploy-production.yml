@@ -1,8 +1,8 @@
 # Production deployment (blue/green, zero downtime) — static variant:
 # - Successful CI on master deploys the exact commit CI built.
 # - Manual dispatch deploys a specified commit's sha-* GHCR images.
-# - No platform stack and no env secrets: the app is four stateless
-#   containers (frontend + counter/facts/image) pulled straight from GHCR.
+# - No platform stack and no env secrets: the app is five stateless
+#   containers (frontend + counter/facts/image/loadgen) pulled from GHCR.
 #   The TLS edge is the infra repo's ONE shared `caddy` container, which
 #   publishes 80/443 for the whole VM and reaches this app's
 #   kdg_frontend_<color> containers over the shared kdg_frontend network.

@@ -12,7 +12,7 @@
     background: #f1f5f9;
     color: #0f172a;
     /* keep clear of the fixed corner diagram */
-    padding-bottom: 250px;
+    padding-bottom: 290px;
   }
   main { max-width: 980px; margin: 0 auto; padding: 28px 20px 0; }
   h1 { font-size: 1.45rem; margin: 0 0 4px; }
@@ -110,16 +110,16 @@
 
   /* corner topology diagram */
   .topology {
-    position: fixed; right: 12px; bottom: 12px; width: 260px;
+    position: fixed; right: 12px; bottom: 12px; width: 300px;
     background: rgba(255, 255, 255, .93); border: 1px solid #e2e8f0;
     border-radius: 10px; padding: 6px 8px 8px;
     box-shadow: 0 4px 14px rgba(15, 23, 42, .08);
   }
-  .topology .cap { margin: 0 0 2px; font-size: .68rem; color: #64748b; text-align: center; }
+  .topology .cap { margin: 0 0 2px; font-size: .74rem; color: #475569; text-align: center; }
   .topology svg { display: block; width: 100%; height: auto; }
   svg .node { fill: #f8fafc; stroke: #64748b; stroke-width: 1; }
-  svg .node-label { font-size: 10px; fill: #0f172a; text-anchor: middle; }
-  svg .node-small  { font-size: 7px; fill: #64748b; text-anchor: middle; }
+  svg .node-label { font-size: 13px; fill: #0f172a; text-anchor: middle; }
+  svg .node-small  { font-size: 10px; fill: #475569; text-anchor: middle; }
   svg .arrow { stroke: #94a3b8; stroke-width: 1.5; fill: none; }
   svg .arrow .head { fill: #94a3b8; stroke: none; }
   svg .arrow.active { stroke: #16a34a; stroke-width: 2.6; }
@@ -144,11 +144,11 @@
     </article>
     <article class="card">
       <span class="pill pill-counter">counter · Express (called by facts)</span>
-      <div id="counter-body" class="card-body">waiting…</div>
+      <div id="counter-body" class="card-body">no counts yet — they arrive with the first facts reply</div>
     </article>
     <article class="card">
       <span class="pill pill-image">image · Go</span>
-      <div id="image-body" class="card-body">waiting…</div>
+      <div id="image-body" class="card-body">no image yet — send a topic and watch one land</div>
     </article>
   </section>
 
@@ -200,37 +200,37 @@
 
 <div class="topology">
   <p class="cap">service topology</p>
-  <svg viewBox="0 0 260 170" role="img" aria-label="service topology: browser calls facts and image; facts calls counter; image calls the internet">
+  <svg viewBox="0 0 300 210" role="img" aria-label="service topology: browser calls facts and image; facts calls counter; image calls the internet">
     <!-- arrows first so node boxes sit on top -->
     <g id="a-browser-facts" class="arrow">
-      <line x1="120" y1="68" x2="120" y2="40"></line>
-      <polygon class="head" points="120,32 116.5,39 123.5,39"></polygon>
+      <line x1="138" y1="88" x2="138" y2="45"></line>
+      <polygon class="head" points="138,38 134.5,45 141.5,45"></polygon>
     </g>
     <g id="a-facts-counter" class="arrow">
-      <line x1="152" y1="19" x2="184" y2="19"></line>
-      <polygon class="head" points="190,19 183,15.5 183,22.5"></polygon>
+      <line x1="176" y1="23" x2="204" y2="23"></line>
+      <polygon class="head" points="210,23 203,19.5 203,26.5"></polygon>
     </g>
     <g id="a-browser-image" class="arrow">
-      <line x1="120" y1="94" x2="120" y2="122"></line>
-      <polygon class="head" points="120,130 116.5,123 123.5,123"></polygon>
+      <line x1="138" y1="118" x2="138" y2="163"></line>
+      <polygon class="head" points="138,170 134.5,163 141.5,163"></polygon>
     </g>
     <g id="a-image-net" class="arrow">
-      <line x1="152" y1="143" x2="175" y2="143"></line>
-      <polygon class="head" points="182,143 175,139.5 175,146.5"></polygon>
+      <line x1="176" y1="184" x2="197" y2="184"></line>
+      <polygon class="head" points="204,184 197,180.5 197,187.5"></polygon>
     </g>
     <!-- nodes -->
-    <rect class="node" x="88" y="6" width="64" height="26" rx="5"></rect>
-    <text class="node-label" x="120" y="22">facts</text>
-    <rect class="node" x="190" y="6" width="62" height="26" rx="5"></rect>
-    <text class="node-label" x="221" y="22">counter</text>
-    <rect class="node" x="88" y="68" width="64" height="26" rx="5"></rect>
-    <text class="node-label" x="120" y="84">browser</text>
-    <rect class="node" x="88" y="130" width="64" height="26" rx="5"></rect>
-    <text class="node-label" x="120" y="146">image</text>
-    <rect class="node" x="182" y="120" width="76" height="46" rx="5"></rect>
-    <text class="node-label" x="220" y="135">internet</text>
-    <text class="node-small" x="220" y="147">(Wikipedia /</text>
-    <text class="node-small" x="220" y="156">Commons)</text>
+    <rect class="node" x="100" y="8" width="76" height="30" rx="5"></rect>
+    <text class="node-label" x="138" y="27.5">facts</text>
+    <rect class="node" x="212" y="8" width="80" height="30" rx="5"></rect>
+    <text class="node-label" x="252" y="27.5">counter</text>
+    <rect class="node" x="100" y="88" width="76" height="30" rx="5"></rect>
+    <text class="node-label" x="138" y="107.5">browser</text>
+    <rect class="node" x="100" y="170" width="76" height="30" rx="5"></rect>
+    <text class="node-label" x="138" y="189.5">image</text>
+    <rect class="node" x="204" y="160" width="92" height="44" rx="5"></rect>
+    <text class="node-label" x="250" y="175">internet</text>
+    <text class="node-small" x="250" y="189">(Wikipedia /</text>
+    <text class="node-small" x="250" y="200">Commons)</text>
   </svg>
 </div>
 

@@ -6,12 +6,13 @@
 # There is deliberately NO top-level name: the -p flag names the project,
 # and the two colors must never share one.
 #
-# This is the Docker (non-lab) production shape of the four shipped
+# This is the Docker (non-lab) production shape of the five shipped
 # services: frontend (nginx serving the guide + dashboard, proxying /api/*)
-# plus the counter/facts/image backends. loadgen is TEACHING-ONLY (a k8s
-# lab tool that needs ServiceAccount/RBAC) and is deliberately absent —
-# see the frontend's `loadgen` network alias for why the name still
-# resolves. The app_internal network is project-scoped ON PURPOSE: each
+# plus the counter/facts/image/loadgen backends. loadgen powers the
+# dashboard's Load Simulator; only its /load/replicas k8s-API read is
+# cluster-only, and it degrades gracefully here (answers
+# {"replicas":null,"error":"not in kubernetes"} — the dashboard shows "—").
+# The app_internal network is project-scoped ON PURPOSE: each
 # color's service-name DNS resolves only within its own color, so nginx's
 # baked `proxy_pass http://facts:8000` etc. always reach the SAME color's
 # backends, never the other release's.
@@ -33,23 +34,24 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      app_internal:
-        aliases:
-          # nginx.conf statically proxies http://loadgen:9000, and nginx
-          # resolves proxy_pass hostnames at STARTUP ("host not found in
-          # upstream" exits the container). loadgen itself is teaching-only
-          # and never ships here, so the frontend carries its name: /api/load/*
-          # just loops back to nginx and 404s, which no shipped page calls.
-          - loadgen
+      # (Historical note: when loadgen was teaching-only and absent from
+      # this stack, the frontend carried a `loadgen` network ALIAS so
+      # nginx's statically-resolved proxy_pass upstreams would not exit at
+      # startup. The real loadgen service below makes that hack redundant.)
+      app_internal: {}
       kdg_frontend: {}
     depends_on:
-      # Long form: the front door waits for its three backends — same
-      # color, same project, so the gate still works per release.
+      # Long form: the front door waits for its four backends — same
+      # color, same project, so the gate still works per release. nginx
+      # resolves every proxy_pass upstream at startup, so loadgen must be
+      # up before the frontend starts, like the others.
       counter:
         condition: service_healthy
       facts:
         condition: service_healthy
       image:
+        condition: service_healthy
+      loadgen:
         condition: service_healthy
 
   counter:
@@ -97,6 +99,25 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    networks:
+      - app_internal
+
+  loadgen:
+    image: "ghcr.io/mayank-uk/kubernetes-guide-loadgen:${IMAGE_TAG:?IMAGE_TAG is required}"
+    container_name: kdg_loadgen_${COLOR:-blue}
+    restart: unless-stopped
+    # The dashboard's Load Simulator target (nginx /api/load/* → :9000).
+    # FACTS_URL defaults to http://facts:8000 inside the image, which is
+    # the compose service name on app_internal — same pattern as
+    # facts→counter. No ServiceAccount exists here, so its one k8s-API
+    # endpoint (/load/replicas) just reports "not in kubernetes".
+    healthcheck:
+      # node:20-alpine ships busybox wget; the app serves GET /health.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - app_internal
 

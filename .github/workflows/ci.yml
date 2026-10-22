@@ -1,5 +1,5 @@
 # CI: statically check the service sources, scan for secrets, smoke the
-# four production images with a real browser, publish attested images from
+# five production images with a real browser, publish attested images from
 # master, and prune old GHCR tags.
 name: CI
 
@@ -47,7 +47,7 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # The image smoke + browser gate: build all FOUR production images
+    # The image smoke + browser gate: build all FIVE production images
     # locally, boot them with the prod compose file plus this CI override
     # (frontend published on the loopback), probe the front door and a
     # live API round-trip, then drive the guide page with Playwright.
@@ -114,6 +114,18 @@ jobs:
                   cache-from: type=gha,scope=image
                   cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=image' || '' }}
 
+            - name: Build loadgen image (local, amd64)
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+              with:
+                  context: loadgen
+                  file: .docker/loadgen/Dockerfile
+                  platforms: linux/amd64
+                  push: false
+                  load: true
+                  tags: ghcr.io/mayank-uk/kubernetes-guide-loadgen:ci
+                  cache-from: type=gha,scope=loadgen
+                  cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=loadgen' || '' }}
+
             - name: Prepare external compose resources
               run: |
                   set -euo pipefail
@@ -144,6 +156,11 @@ jobs:
                   # counts prove counter answered.
                   curl -fsS --max-time 15 'http://127.0.0.1:8080/api/facts?topic=ci-probe&spin=true' \
                     | grep -q '"counts"'
+                  # The Load Simulator's path must work through nginx too —
+                  # the 2026-10-22 "loadgen unreachable" live incident was
+                  # a prod stack without loadgen that this job never probed.
+                  curl -fsS --max-time 10 'http://127.0.0.1:8080/api/load/status' \
+                    | grep -q '"running"'
 
             - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
               with:
@@ -257,6 +274,10 @@ jobs:
                       image: ghcr.io/mayank-uk/kubernetes-guide-image
                       dockerfile: .docker/image/Dockerfile
                       context: image
+                    - service: loadgen
+                      image: ghcr.io/mayank-uk/kubernetes-guide-loadgen
+                      dockerfile: .docker/loadgen/Dockerfile
+                      context: loadgen
 
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -427,3 +448,4 @@ jobs:
                   prune_package 'kubernetes-guide-counter'
                   prune_package 'kubernetes-guide-facts'
                   prune_package 'kubernetes-guide-image'
+                  prune_package 'kubernetes-guide-loadgen'

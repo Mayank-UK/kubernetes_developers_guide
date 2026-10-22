@@ -4,7 +4,7 @@
 #     -f .docker/docker-compose.ci.yml up -d --wait
 #
 # What the override changes, and why:
-# - all four images are pinned to the locally built :ci tags, and their
+# - all five images are pinned to the locally built :ci tags, and their
 #   container names are pinned to fixed *_ci names (the prod file's
 #   ${COLOR:-blue} interpolation then cannot matter). Compose interpolates
 #   each file BEFORE merging, so the prod file's ${IMAGE_TAG:?} still
@@ -42,3 +42,7 @@ services:
     image:
         image: ghcr.io/mayank-uk/kubernetes-guide-image:ci
         container_name: kubernetes_developers_guide_ci_image
+
+    loadgen:
+        image: ghcr.io/mayank-uk/kubernetes-guide-loadgen:ci
+        container_name: kubernetes_developers_guide_ci_loadgen
