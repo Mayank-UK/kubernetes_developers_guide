@@ -1,0 +1,319 @@
+# Production deployment (blue/green, zero downtime) — static variant:
+# - Successful CI on master deploys the exact commit CI built.
+# - Manual dispatch deploys a specified commit's sha-* GHCR images.
+# - No platform stack and no env secrets: the app is four stateless
+#   containers (frontend + counter/facts/image) pulled straight from GHCR.
+#   The TLS edge is the infra repo's ONE shared `caddy` container, which
+#   publishes 80/443 for the whole VM and reaches this app's
+#   kdg_frontend_<color> containers over the shared kdg_frontend network.
+# - Each release boots the app stack under the INACTIVE color's project
+#   (kdg_blue / kdg_green), is probed privately, then goes live by
+#   rewriting the flip file the shared caddy bind-mounts
+#   (platform/upstream.caddy) + a graceful `docker exec caddy caddy reload`.
+# - The live color is never touched until the new one is healthy: a
+#   pre-flip failure cleans up the failed attempt with zero impact; a
+#   post-flip failure flips back to the still-running old color (instant
+#   rollback). First-deploy failures have no fallback and report failure.
+
+name: Deploy production
+
+on:
+    workflow_run:
+        workflows: [CI]
+        types: [completed]
+        branches: [master]
+    workflow_dispatch:
+        inputs:
+            image_tag:
+                description: 'Commit image tag, e.g. sha-abcd1234 or abcd1234'
+                required: true
+                type: string
+
+permissions:
+    contents: read
+
+jobs:
+    deploy-production:
+        name: Deploy production
+        runs-on: ubuntu-latest
+
+        if: >-
+            (
+              github.event_name == 'workflow_dispatch' &&
+              github.ref == 'refs/heads/master'
+            ) ||
+            (
+              github.event_name == 'workflow_run' &&
+              github.event.workflow_run.conclusion == 'success' &&
+              github.event.workflow_run.event == 'push' &&
+              github.event.workflow_run.head_branch == 'master' &&
+              github.event.workflow_run.head_repository.full_name == github.repository
+            )
+
+        environment: production
+        concurrency:
+            group: deploy-production
+            cancel-in-progress: false
+        permissions:
+            contents: read
+
+        steps:
+            - name: Check out repository history
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: refs/heads/master
+                  fetch-depth: 0
+
+            - name: Resolve deployment commit and image tag
+              id: tag
+              shell: bash
+              env:
+                  INPUT_TAG: ${{ inputs.image_tag }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+              run: |
+                  set -euo pipefail
+
+                  if [ -n "$INPUT_TAG" ]; then
+                    case "$INPUT_TAG" in
+                      sha-*) short="${INPUT_TAG#sha-}" ;;
+                      *)     short="$INPUT_TAG" ;;
+                    esac
+
+                    if [[ ! "$short" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+                      echo "Invalid image tag. Supply sha- followed by a commit SHA, or a bare commit SHA." >&2
+                      exit 1
+                    fi
+
+                    sha="$(git rev-parse --verify "${short}^{commit}")"
+                  else
+                    sha="$HEAD_SHA"
+                    git cat-file -e "${sha}^{commit}"
+                  fi
+
+                  sha="$(printf '%s' "$sha" | tr '[:upper:]' '[:lower:]')"
+
+                  # Only deploy commits reachable from the production branch.
+                  if ! git merge-base --is-ancestor "$sha" origin/master; then
+                    echo "Refusing deployment: commit is not on the master history." >&2
+                    exit 1
+                  fi
+
+                  tag="sha-$(printf '%s' "$sha" | cut -c1-7)"
+
+                  echo "Deployment commit: $sha"
+                  echo "Image tag: $tag"
+                  echo "sha=$sha" >> "$GITHUB_OUTPUT"
+                  echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+            - name: Check out exact deployment commit
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ steps.tag.outputs.sha }}
+                  fetch-depth: 1
+
+            - name: Validate production configuration
+              env:
+                  # Any syntactic tag satisfies the ${IMAGE_TAG:?} check —
+                  # nothing is booted on the runner; the deploy pulls the
+                  # real tag on the VM.
+                  IMAGE_TAG: sha-test
+              run: |
+                  set -euo pipefail
+                  test -f .docker/docker-compose-prod.yml
+                  docker compose -f .docker/docker-compose-prod.yml config -q
+
+            - name: Prepare directories on VM
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: ${{ secrets.VM_USER }}
+                  key: ${{ secrets.VM_PRIVATE_KEY }}
+                  fingerprint: ${{ secrets.VM_HOST_FINGERPRINT }}
+                  command_timeout: 1m
+                  script: |
+                      set -eu
+                      mkdir -p "/home/ubuntu/kubernetes_developers_guide/platform"
+                      mkdir -p "/home/ubuntu/kubernetes_developers_guide/releases/${{ steps.tag.outputs.sha }}"
+
+            - name: Transfer release configuration
+              uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: ${{ secrets.VM_USER }}
+                  key: ${{ secrets.VM_PRIVATE_KEY }}
+                  fingerprint: ${{ secrets.VM_HOST_FINGERPRINT }}
+                  source: '.docker/docker-compose-prod.yml'
+                  target: '/home/ubuntu/kubernetes_developers_guide/releases/${{ steps.tag.outputs.sha }}'
+                  # Keep the .docker/ path component so the release dir
+                  # mirrors the repo layout the deploy script expects. The
+                  # platform/ dir holds no compose file in this static
+                  # variant — only the upstream.caddy flip file the shared
+                  # caddy bind-mounts, written by the deploy below.
+                  strip_components: 0
+
+            - name: Deploy (blue/green)
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+              env:
+                  DEPLOY_SHA: ${{ steps.tag.outputs.sha }}
+                  IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+                  GHCR_USER: ${{ secrets.GHCR_USER }}
+                  GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: ${{ secrets.VM_USER }}
+                  key: ${{ secrets.VM_PRIVATE_KEY }}
+                  fingerprint: ${{ secrets.VM_HOST_FINGERPRINT }}
+                  envs: DEPLOY_SHA,IMAGE_TAG,GHCR_USER,GHCR_PULL_TOKEN
+                  command_timeout: 10m
+                  script: |
+                      set -eu
+
+                      ROOT="/home/ubuntu/kubernetes_developers_guide"
+                      RELEASE_DIR="$ROOT/releases/$DEPLOY_SHA"
+                      APP_COMPOSE="$RELEASE_DIR/.docker/docker-compose-prod.yml"
+                      STATE_DIR="$ROOT/.deploy"
+                      STATE_FILE="$STATE_DIR/last-successful-sha"
+                      COLOR_FILE="$STATE_DIR/active-color"
+                      HEALTH_URL="https://kubernetesdevelopersguide.makbuilds.duckdns.org/"
+
+                      test -f "$APP_COMPOSE"
+
+                      mkdir -p "$STATE_DIR"
+
+                      # Authenticate to GHCR without putting the token in command arguments.
+                      printf '%s' "$GHCR_PULL_TOKEN" |
+                        docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+                      export IMAGE_TAG
+
+                      # Read the last successful release, if one exists.
+                      PREVIOUS_SHA=""
+                      if [ -s "$STATE_FILE" ]; then
+                        PREVIOUS_SHA="$(cat "$STATE_FILE")"
+                        if ! printf '%s' "$PREVIOUS_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+                          echo "The saved previous-release SHA is invalid; refusing deployment." >&2
+                          exit 1
+                        fi
+                      fi
+
+                      # ── 1. Shared infrastructure: the frontend network ──────────
+                      docker network create kdg_frontend 2>/dev/null || true
+
+                      # ── 2. Active color ─────────────────────────────────────────
+                      HAD_ACTIVE_COLOR=0
+                      ACTIVE_COLOR=""
+                      if [ -s "$COLOR_FILE" ]; then
+                        ACTIVE_COLOR="$(cat "$COLOR_FILE")"
+                        if [ "$ACTIVE_COLOR" != "blue" ] && [ "$ACTIVE_COLOR" != "green" ]; then
+                          echo "The saved active color is invalid; refusing deployment." >&2
+                          exit 1
+                        fi
+                        HAD_ACTIVE_COLOR=1
+                      fi
+                      # First deploy targets blue; the shared caddy's
+                      # upstream then 502s (nothing is live yet) until the
+                      # flip below.
+                      ACTIVE_COLOR="${ACTIVE_COLOR:-blue}"
+
+                      # Keep the flip file consistent with the color that
+                      # SHOULD be serving before any deploy action. The
+                      # shared caddy bind-mounts this file read-only; it
+                      # takes effect only on `caddy reload` — which is
+                      # exactly the flip step below, never this write.
+                      printf 'reverse_proxy kdg_frontend_%s:80\n' "$ACTIVE_COLOR" \
+                        > "$ROOT/platform/upstream.caddy"
+
+                      # ── 3. Pick the inactive color ──────────────────────────────
+                      if [ "$HAD_ACTIVE_COLOR" -eq 1 ]; then
+                        if [ "$ACTIVE_COLOR" = "blue" ]; then COLOR="green"; else COLOR="blue"; fi
+                      else
+                        COLOR="blue"
+                      fi
+                      export COLOR
+
+                      # ── 4. Boot the candidate color ─────────────────────────────
+                      echo "Deploying GHCR release $IMAGE_TAG as color $COLOR"
+                      docker compose -p "kdg_$COLOR" -f "$APP_COMPOSE" pull
+                      docker compose -p "kdg_$COLOR" -f "$APP_COMPOSE" up -d --no-build --wait
+
+                      # ── 5. Probe the new color privately (belt over --wait) ────
+                      COLOR_NET="kdg_${COLOR}_app_internal"
+                      docker network inspect "$COLOR_NET" >/dev/null
+
+                      probe_new_color() {
+                        docker run --rm --network "$COLOR_NET" busybox:stable \
+                          wget -qO- --timeout=10 "$1" >/dev/null
+                      }
+
+                      if ! probe_new_color "http://kdg_frontend_${COLOR}/" ||
+                         ! probe_new_color "http://facts:8000/health"; then
+                        # ── 6. Pre-flip failure: the live color was never touched.
+                        echo "New color $COLOR failed its private probe; cleaning it up." >&2
+                        docker compose -p "kdg_$COLOR" -f "$APP_COMPOSE" down --remove-orphans
+                        exit 1
+                      fi
+
+                      # ── 7. Flip: upstream file + reload the shared caddy ────────
+                      printf 'reverse_proxy kdg_frontend_%s:80\n' "$COLOR" \
+                        > "$ROOT/platform/upstream.caddy"
+                      docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+
+                      wait_for_health() {
+                        attempt=1
+                        while [ "$attempt" -le 12 ]; do
+                          if curl -fsS --max-time 10 "$HEALTH_URL" >/dev/null; then
+                            return 0
+                          fi
+                          if [ "$attempt" -lt 12 ]; then
+                            sleep 5
+                          fi
+                          attempt=$((attempt + 1))
+                        done
+                        return 1
+                      }
+
+                      # ── 8. Public health gate ───────────────────────────────────
+                      if wait_for_health; then
+                        # ── 9. Success: persist state atomically, retire the old
+                        # color, prune old release dirs (keep the newest 5, never
+                        # the active or previous sha).
+                        printf '%s\n' "$DEPLOY_SHA" > "$STATE_FILE.tmp"
+                        mv "$STATE_FILE.tmp" "$STATE_FILE"
+                        printf '%s\n' "$COLOR" > "$COLOR_FILE.tmp"
+                        mv "$COLOR_FILE.tmp" "$COLOR_FILE"
+
+                        if [ "$COLOR" = "blue" ]; then OTHER="green"; else OTHER="blue"; fi
+                        docker compose -p "kdg_$OTHER" -f "$APP_COMPOSE" down --remove-orphans
+
+                        cd "$ROOT/releases"
+                        ls -t | tail -n +6 | while read -r dir; do
+                          if [ "$dir" != "$DEPLOY_SHA" ] && [ "$dir" != "$PREVIOUS_SHA" ]; then
+                            rm -rf "$ROOT/releases/$dir"
+                            echo "Pruned old release directory: $dir"
+                          fi
+                        done
+
+                        echo "Deployment succeeded: $DEPLOY_SHA (active color: $COLOR)"
+                        exit 0
+                      fi
+
+                      # ── 10. Post-flip failure: instant rollback ──────────────────
+                      echo "Public health check failed after the flip: $DEPLOY_SHA" >&2
+
+                      if [ "$HAD_ACTIVE_COLOR" -eq 1 ]; then
+                        echo "Flipping back to the still-running color $ACTIVE_COLOR." >&2
+                        printf 'reverse_proxy kdg_frontend_%s:80\n' "$ACTIVE_COLOR" \
+                          > "$ROOT/platform/upstream.caddy"
+                        docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+                        if wait_for_health; then
+                          echo "Rollback succeeded: $ACTIVE_COLOR is serving again." >&2
+                        else
+                          echo "Rollback verification failed; manual intervention is required." >&2
+                        fi
+                        docker compose -p "kdg_$COLOR" -f "$APP_COMPOSE" down --remove-orphans
+                        echo "The failed deployment remains marked as failed." >&2
+                        exit 1
+                      fi
+
+                      echo "No previous successful release exists. No rollback attempted." >&2
+                      exit 1

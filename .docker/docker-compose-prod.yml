@@ -1,0 +1,113 @@
+# PER-RELEASE APP STACK — booted per deploy under the project of one color:
+#   COLOR=blue  IMAGE_TAG=sha-abc1234 docker compose -p kdg_blue  -f <this file> up -d --wait
+#   COLOR=green IMAGE_TAG=sha-def5678 docker compose -p kdg_green -f <this file> up -d --wait
+# The deploy script ALWAYS exports COLOR deliberately; the ${COLOR:-blue}
+# default below only exists so a bare local `up` boots something (blue).
+# There is deliberately NO top-level name: the -p flag names the project,
+# and the two colors must never share one.
+#
+# This is the Docker (non-lab) production shape of the four shipped
+# services: frontend (nginx serving the guide + dashboard, proxying /api/*)
+# plus the counter/facts/image backends. loadgen is TEACHING-ONLY (a k8s
+# lab tool that needs ServiceAccount/RBAC) and is deliberately absent —
+# see the frontend's `loadgen` network alias for why the name still
+# resolves. The app_internal network is project-scoped ON PURPOSE: each
+# color's service-name DNS resolves only within its own color, so nginx's
+# baked `proxy_pass http://facts:8000` etc. always reach the SAME color's
+# backends, never the other release's.
+services:
+  frontend:
+    image: "ghcr.io/mayank-uk/kubernetes-guide-frontend:${IMAGE_TAG:?IMAGE_TAG is required}"
+    container_name: kdg_frontend_${COLOR:-blue}
+    restart: unless-stopped
+    # No published ports — the shared caddy is the front door (TLS on
+    # :443) and reaches this container BY NAME (kdg_frontend_<color>) on
+    # the shared kdg_frontend network. Debug hatch (loopback):
+    #   - "127.0.0.1:8080:80"
+    healthcheck:
+      # 127.0.0.1, not localhost: busybox wget resolves localhost to ::1
+      # first and nginx binds IPv4 only.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      app_internal:
+        aliases:
+          # nginx.conf statically proxies http://loadgen:9000, and nginx
+          # resolves proxy_pass hostnames at STARTUP ("host not found in
+          # upstream" exits the container). loadgen itself is teaching-only
+          # and never ships here, so the frontend carries its name: /api/load/*
+          # just loops back to nginx and 404s, which no shipped page calls.
+          - loadgen
+      kdg_frontend: {}
+    depends_on:
+      # Long form: the front door waits for its three backends — same
+      # color, same project, so the gate still works per release.
+      counter:
+        condition: service_healthy
+      facts:
+        condition: service_healthy
+      image:
+        condition: service_healthy
+
+  counter:
+    image: "ghcr.io/mayank-uk/kubernetes-guide-counter:${IMAGE_TAG:?IMAGE_TAG is required}"
+    container_name: kdg_counter_${COLOR:-blue}
+    restart: unless-stopped
+    # Internal by design (mirrors the k8s lab: nginx exposes no /api/count
+    # route) — only facts reaches it, by service name on app_internal.
+    healthcheck:
+      # node:20-alpine ships busybox wget; the app serves GET /health.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - app_internal
+
+  facts:
+    image: "ghcr.io/mayank-uk/kubernetes-guide-facts:${IMAGE_TAG:?IMAGE_TAG is required}"
+    container_name: kdg_facts_${COLOR:-blue}
+    restart: unless-stopped
+    # COUNTER_URL defaults to http://counter:3000 inside the image, which
+    # is exactly the compose service name on app_internal — no env needed.
+    healthcheck:
+      # python:3.12-slim ships NO wget/curl — the interpreter itself is
+      # the only probe client guaranteed to exist. urlopen raises (non-zero
+      # exit) on any HTTP >= 400 or connection failure.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - app_internal
+
+  image:
+    image: "ghcr.io/mayank-uk/kubernetes-guide-image:${IMAGE_TAG:?IMAGE_TAG is required}"
+    container_name: kdg_image_${COLOR:-blue}
+    restart: unless-stopped
+    healthcheck:
+      # alpine:3.20 ships busybox wget; the Go server serves /health.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - app_internal
+
+networks:
+  # Plain project-scoped network: kdg_blue_app_internal / kdg_green_app_internal.
+  # THIS is the isolation unit — nginx's `proxy_pass http://facts:8000`
+  # etc. and this file's depends_on resolve service names inside the
+  # color's own network.
+  app_internal: {}
+  # Shared with the infra repo's TLS edge (external, created by the
+  # deploy): caddy reaches kdg_frontend_<color> here.
+  kdg_frontend:
+    name: kdg_frontend
+    external: true

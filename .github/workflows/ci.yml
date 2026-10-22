@@ -1,0 +1,429 @@
+# CI: statically check the service sources, scan for secrets, smoke the
+# four production images with a real browser, publish attested images from
+# master, and prune old GHCR tags.
+name: CI
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+
+permissions:
+    contents: read
+
+jobs:
+    # Honest tooling: this repo is a Kubernetes teaching lab with NO unit
+    # test suites and NO snippet-check script — the real gates are the
+    # image builds (the frontend Dockerfile syntax-gates its nginx.conf
+    # with nginx -t) and the e2e stack job below. What CAN be checked
+    # statically is checked here: every service source must parse/vet.
+    test:
+        name: Static checks
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+              with:
+                  node-version: 22
+
+            - name: Syntax-check the Node services
+              run: node --check counter/server.js loadgen/server.js
+
+            - name: Syntax-check the FastAPI service
+              run: python3 -m py_compile facts/main.py
+
+            # image/ is pure stdlib (see go.mod) — vet runs offline.
+            - name: Vet the Go service
+              working-directory: image
+              run: go vet ./...
+
+    secrets:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+            - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # The image smoke + browser gate: build all FOUR production images
+    # locally, boot them with the prod compose file plus this CI override
+    # (frontend published on the loopback), probe the front door and a
+    # live API round-trip, then drive the guide page with Playwright.
+    e2e:
+        name: Image smoke + browser gate
+        needs: [test, secrets]
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+            # The frontend builds from the REPO ROOT (it bakes in
+            # frontend/, GUIDE.md, and the vendored renderer); each backend
+            # builds from its own service directory.
+            - name: Build frontend image (local, amd64)
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              with:
+                  context: .
+                  file: .docker/frontend/Dockerfile
+                  platforms: linux/amd64
+                  push: false
+                  load: true
+                  tags: ghcr.io/mayank-uk/kubernetes-guide-frontend:ci
+                  cache-from: type=gha,scope=frontend
+                  # Fork PRs run with a read-only token — never attempt cache
+                  # writes there; the expression yields '' (cache write off).
+                  cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=frontend' || '' }}
+
+            - name: Build counter image (local, amd64)
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              with:
+                  context: counter
+                  file: .docker/counter/Dockerfile
+                  platforms: linux/amd64
+                  push: false
+                  load: true
+                  tags: ghcr.io/mayank-uk/kubernetes-guide-counter:ci
+                  cache-from: type=gha,scope=counter
+                  cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=counter' || '' }}
+
+            - name: Build facts image (local, amd64)
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              with:
+                  context: facts
+                  file: .docker/facts/Dockerfile
+                  platforms: linux/amd64
+                  push: false
+                  load: true
+                  tags: ghcr.io/mayank-uk/kubernetes-guide-facts:ci
+                  cache-from: type=gha,scope=facts
+                  cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=facts' || '' }}
+
+            - name: Build image service image (local, amd64)
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              with:
+                  context: image
+                  file: .docker/image/Dockerfile
+                  platforms: linux/amd64
+                  push: false
+                  load: true
+                  tags: ghcr.io/mayank-uk/kubernetes-guide-image:ci
+                  cache-from: type=gha,scope=image
+                  cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=image' || '' }}
+
+            - name: Prepare external compose resources
+              run: |
+                  set -euo pipefail
+                  # The prod stack references this as external: compose
+                  # looks it up, never creates it. Idempotent — safe on
+                  # reruns; a fresh runner just makes a fresh one.
+                  docker network create kdg_frontend 2>/dev/null || true
+
+            - name: Boot the production images (prod compose + CI override)
+              run: >
+                  docker compose -f .docker/docker-compose-prod.yml
+                  -f .docker/docker-compose.ci.yml up -d --wait --wait-timeout 300
+
+            - name: Probe the front door and a live API round-trip
+              run: |
+                  set -euo pipefail
+                  for attempt in 1 2 3 4 5; do
+                      if curl -fsS --max-time 10 http://127.0.0.1:8080/ >/dev/null; then
+                          break
+                      fi
+                      echo "front-door probe attempt ${attempt} failed; retrying" >&2
+                      sleep 5
+                  done
+                  curl -fsS --max-time 10 http://127.0.0.1:8080/ >/dev/null
+                  # One full chain through the stack: nginx -> facts -> counter.
+                  # spin=true takes facts' CPU-burn path, so the round-trip
+                  # needs NO external Wikipedia call to succeed; the returned
+                  # counts prove counter answered.
+                  curl -fsS --max-time 15 'http://127.0.0.1:8080/api/facts?topic=ci-probe&spin=true' \
+                    | grep -q '"counts"'
+
+            - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+              with:
+                  node-version: 22
+                  cache: npm
+                  cache-dependency-path: e2e/package-lock.json
+
+            - name: Run browser E2E against the booted stack
+              working-directory: e2e
+              env:
+                  E2E_BASE_URL: http://127.0.0.1:8080
+              run: |
+                  npm ci
+                  npx playwright install --with-deps chromium
+                  npm test
+
+            - name: Upload Playwright artifacts on failure
+              if: failure()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: playwright-artifacts
+                  path: |
+                      e2e/test-results
+                      e2e/playwright-report
+                  retention-days: 14
+
+            - name: Tear down the CI stack
+              if: always()
+              run: >
+                  docker compose -f .docker/docker-compose-prod.yml
+                  -f .docker/docker-compose.ci.yml down -v --remove-orphans
+
+    # The deployment VM's CPU decides what gets published: one SSH recon
+    # (uname -m) replaces the hardcoded platform pair — build-push then
+    # publishes exactly the one platform the VM runs.
+    vm-arch:
+        name: Detect VM architecture
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        # The VM SSH secrets live in the production environment — the same
+        # scope the deploy workflow reads them from.
+        environment: production
+        outputs:
+            arch: ${{ steps.arch.outputs.arch }}
+        steps:
+            - name: Read the VM's architecture over SSH
+              id: vm
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: ${{ secrets.VM_USER }}
+                  key: ${{ secrets.VM_PRIVATE_KEY }}
+                  fingerprint: ${{ secrets.VM_HOST_FINGERPRINT }}
+                  command_timeout: 1m
+                  capture_stdout: true
+                  # Banner noise in the captured stdout is why the marker exists.
+                  script: echo "VM_ARCH_MARKER=$(uname -m)"
+
+            - name: Map uname output to a Docker platform architecture
+              id: arch
+              shell: bash
+              env:
+                  VM_UNAME: ${{ steps.vm.outputs.stdout }}
+              run: |
+                  set -euo pipefail
+                  # capture_stdout returns the action's banner lines around the
+                  # real value — extract ONLY the marker line, then strip any
+                  # whitespace (a bare trim once glued banner noise onto the
+                  # value and no case matched).
+                  raw="$(printf '%s' "$VM_UNAME" | sed -n 's/^VM_ARCH_MARKER=//p' | head -n 1 | tr -d '[:space:]')"
+                  if [ -z "$raw" ]; then
+                      echo "No VM_ARCH_MARKER line in SSH output; refusing to guess." >&2
+                      exit 1
+                  fi
+                  case "$raw" in
+                      aarch64) arch=arm64 ;;
+                      x86_64 | amd64) arch=amd64 ;;
+                      *)
+                          echo "Unrecognized VM architecture: '$raw'" >&2
+                          exit 1
+                          ;;
+                  esac
+                  echo "arch=$arch" >> "$GITHUB_OUTPUT"
+
+    build-push:
+        name: Build and publish production images
+        needs: [e2e, vm-arch]
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - service: frontend
+                      image: ghcr.io/mayank-uk/kubernetes-guide-frontend
+                      dockerfile: .docker/frontend/Dockerfile
+                      context: .
+                    - service: counter
+                      image: ghcr.io/mayank-uk/kubernetes-guide-counter
+                      dockerfile: .docker/counter/Dockerfile
+                      context: counter
+                    - service: facts
+                      image: ghcr.io/mayank-uk/kubernetes-guide-facts
+                      dockerfile: .docker/facts/Dockerfile
+                      context: facts
+                    - service: image
+                      image: ghcr.io/mayank-uk/kubernetes-guide-image
+                      dockerfile: .docker/image/Dockerfile
+                      context: image
+
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Compute commit image tag
+              id: image_tag
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+                  echo "tag=sha-${short_sha}" >> "$GITHUB_OUTPUT"
+
+            # The Go and Node RUN steps in the backend images are plain
+            # compiles that need no emulation; kept as cheap insurance for
+            # any future target-arch RUN step (a no-op when arches match).
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+            - name: Log in to GitHub Container Registry
+              uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Build and push image
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              with:
+                  context: ${{ matrix.context }}
+                  file: ${{ matrix.dockerfile }}
+                  platforms: linux/${{ needs.vm-arch.outputs.arch }}
+                  push: true
+                  # Supply-chain attestations: provenance (how/where the image
+                  # was built) + SBOM (what is inside it) — pushed alongside
+                  # the image as OCI artifacts, verifiable in GHCR.
+                  provenance: true
+                  sbom: true
+                  tags: |
+                      ${{ matrix.image }}:${{ steps.image_tag.outputs.tag }}
+                      ${{ matrix.image }}:master
+                  cache-from: type=gha,scope=${{ matrix.service }}
+                  cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+    # GHCR tag retention: every master push leaves one sha-<7> version per
+    # package. This job deletes sha-tagged versions beyond the newest 10 —
+    # keep-10 aligns with the VM's keep-5 release dirs plus margin for
+    # workflow_dispatch rollback targets; versions carrying `master`/`latest`
+    # are never pruned. UNTAGGED versions are NEVER deleted: GHCR lists every
+    # manifest as a version, so a tagged index has untagged CHILDREN (per-arch
+    # images, provenance/SBOM attestations) and deleting untagged versions
+    # breaks the tagged pull (2026-10-21 incident: an untagged sweep killed
+    # the children of a freshly published image and took the deploy down).
+    # Untagged accumulation is accepted and bounded; delete failures only
+    # warn — hygiene must never block CD.
+    ghcr-prune:
+        name: Prune old GHCR image tags
+        needs: [build-push]
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+
+        steps:
+            - name: Delete sha-tagged GHCR versions beyond the newest 10
+              shell: bash
+              env:
+                  # The token rides in env, never inlined into the script
+                  # body; the script never runs with set -x.
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+
+                  api='https://api.github.com'
+                  keep=10
+                  pages_max=3
+
+                  prune_package() {
+                      local pkg="$1"
+                      local encoded="${pkg//\//%2F}"
+                      local merged='[]'
+
+                      # (1) Paginate the version list; a short page ends the walk
+                      # (3 pages = 300 versions, far beyond anything real here).
+                      local page=1 page_file count
+                      while [ "$page" -le "$pages_max" ]; do
+                          page_file="$(mktemp)"
+                          if ! curl -fsS --max-time 30 \
+                              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                              -H 'Accept: application/vnd.github+json' \
+                              -o "$page_file" \
+                              "$api/user/packages/container/$encoded/versions?per_page=100&page=$page"; then
+                              echo "warn: could not list versions for $pkg — skipping it" >&2
+                              rm -f "$page_file"
+                              return 0
+                          fi
+                          if ! merged="$(jq --argjson m "$merged" --slurpfile p "$page_file" -n '$m + ($p[0] // [])')"; then
+                              echo "warn: malformed version page for $pkg — skipping it" >&2
+                              rm -f "$page_file"
+                              return 0
+                          fi
+                          count="$(jq 'length' "$page_file")"
+                          rm -f "$page_file"
+                          if [ "$count" -lt 100 ]; then
+                              break
+                          fi
+                          page=$((page + 1))
+                      done
+
+                      # Sanity guard: a malformed response must never feed the
+                      # delete loop — assert the accumulated list parses as a
+                      # JSON array BEFORE filtering; if not, warn and skip the
+                      # package (exit 0) rather than deleting blindly.
+                      if ! printf '%s' "$merged" | jq -e 'type == "array"' >/dev/null 2>&1; then
+                          echo "warn: version list for $pkg did not parse as JSON — skipping it" >&2
+                          return 0
+                      fi
+
+                      # (2) sha-tagged versions, newest first; (3) candidates
+                      # are those beyond the newest $keep minus any version
+                      # still carrying a protected tag. UNTAGGED versions are
+                      # deliberately absent from this rule: the versions API
+                      # exposes no parent/referrer link, so garbage orphans
+                      # and the live children of KEPT indexes are
+                      # indistinguishable — the 2026-10-21 incident deleted
+                      # freshly pushed children and broke every pull.
+                      local candidates
+                      candidates="$(printf '%s' "$merged" | jq -argjson keep "$keep" '
+                          [ .[]
+                            | select((.metadata.container.tags // [])
+                                 | any(.[]; test("^sha-[0-9a-f]{7}$"))) ]
+                          | sort_by(.created_at) | reverse
+                          | .[$keep:]
+                          | map(select(
+                                ((.metadata.container.tags // []) | index("master") | not) and
+                                ((.metadata.container.tags // []) | index("latest") | not)))
+                      ')"
+
+                      # (4) Deletes are individually NON-FATAL: a failure warns
+                      # and the loop continues — hygiene must never block CD.
+                      local total
+                      total="$(printf '%s' "$candidates" | jq 'length')"
+                      if [ "$total" -eq 0 ]; then
+                          echo "$pkg: nothing to prune"
+                          return 0
+                      fi
+                      echo "$pkg: pruning $total sha-tagged version(s) beyond the newest $keep"
+                      local id tags
+                      while read -r id tags; do
+                          curl -fsS --max-time 30 -X DELETE \
+                              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                              -H 'Accept: application/vnd.github+json' \
+                              "$api/user/packages/container/$encoded/versions/$id" \
+                              || echo "warn: failed to delete $pkg version $id — continuing" >&2
+                          echo "pruned $pkg version $id (tags: $tags)"
+                      done < <(printf '%s' "$candidates" | jq -r '.[] | "\(.id) \((.metadata.container.tags // []) | join(","))"')
+                  }
+
+                  # The /user/* package endpoints address GHCR containers by
+                  # their BARE name (ghcr.io/mayank-uk/kubernetes-guide-frontend
+                  # is package "kubernetes-guide-frontend" — the namespaced
+                  # form 404s). The encode above is a no-op here, kept
+                  # defensive for any future name carrying a '/'.
+                  prune_package 'kubernetes-guide-frontend'
+                  prune_package 'kubernetes-guide-counter'
+                  prune_package 'kubernetes-guide-facts'
+                  prune_package 'kubernetes-guide-image'

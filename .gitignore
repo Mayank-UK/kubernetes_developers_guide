@@ -1,0 +1,15 @@
+node_modules/
+*.log
+# Playwright E2E artifacts (e2e/node_modules is covered by node_modules/ above)
+e2e/test-results/
+e2e/playwright-report/
+.DS_Store
+# Env files stay out of git — EXCEPT the compose interpolation default,
+# which is NOT a secret: compose auto-loads it (project dir = first -f
+# file's dir) so the CI override flow runs bare — compose interpolates each
+# file BEFORE merging, so the :ci image override alone cannot silence
+# ${IMAGE_TAG:?} in the prod file. An explicit IMAGE_TAG in the environment
+# (the deploy) always wins over this file. Negations must come after the
+# rule; the parent .docker/ dir is not excluded, so re-including works.
+.env*
+!.docker/.env
