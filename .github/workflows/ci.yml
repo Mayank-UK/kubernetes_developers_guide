@@ -65,7 +65,7 @@ jobs:
             # frontend/, GUIDE.md, and the vendored renderer); each backend
             # builds from its own service directory.
             - name: Build frontend image (local, amd64)
-              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                   context: .
                   file: .docker/frontend/Dockerfile
@@ -79,7 +79,7 @@ jobs:
                   cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=frontend' || '' }}
 
             - name: Build counter image (local, amd64)
-              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                   context: counter
                   file: .docker/counter/Dockerfile
@@ -91,7 +91,7 @@ jobs:
                   cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=counter' || '' }}
 
             - name: Build facts image (local, amd64)
-              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                   context: facts
                   file: .docker/facts/Dockerfile
@@ -103,7 +103,7 @@ jobs:
                   cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=facts' || '' }}
 
             - name: Build image service image (local, amd64)
-              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                   context: image
                   file: .docker/image/Dockerfile
@@ -286,7 +286,7 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Build and push image
-              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b6773791b0dc # v7.4.0
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                   context: ${{ matrix.context }}
                   file: ${{ matrix.dockerfile }}
