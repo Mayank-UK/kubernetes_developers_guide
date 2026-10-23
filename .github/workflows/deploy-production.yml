@@ -174,7 +174,7 @@ jobs:
                       STATE_DIR="$ROOT/.deploy"
                       STATE_FILE="$STATE_DIR/last-successful-sha"
                       COLOR_FILE="$STATE_DIR/active-color"
-                      HEALTH_URL="https://kubernetesdevelopersguide.makbuilds.duckdns.org/"
+                      HEALTH_URL="https://kubernetesdevelopersguide.mayankcodeworks.com/"
 
                       test -f "$APP_COMPOSE"
 
