@@ -11,6 +11,7 @@
      .docker/frontend/Dockerfile). Builds without them ship this page with
      NO beacon tag at all — the wrapper then no-ops. -->
 <script defer src="/js/analytics.js"></script>
+<script>(function(){try{var b=document.currentScript&&document.currentScript.nextElementSibling;if(!b||b.tagName!=='SCRIPT'||!b.hasAttribute('data-website-id'))return;var k='mcw_vid',v=null;try{v=localStorage.getItem(k)}catch(e){}if(!v){v=crypto.randomUUID?crypto.randomUUID():'v-'+Date.now()+'-'+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v)}catch(e){return}}b.setAttribute('data-distinct-id',v)}catch(e){}})();</script>
 <script defer src="__UMAMI_SRC__" data-website-id="__UMAMI_ID__"></script>
 <!-- highlight.js theme is deliberately dark on BOTH modes (GitHub-style:
      dark code blocks read fine on light pages) and is only loaded from the

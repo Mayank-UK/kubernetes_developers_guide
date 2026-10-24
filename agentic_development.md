@@ -26,6 +26,9 @@
   `frontend/js/analytics.js` carrier + `__UMAMI_*__` token beacon in the HTML; the Dockerfile swaps the tokens when BOTH UMAMI_* repo-level GitHub Variables are set (NEVER environment-scoped) and
   DELETES the beacon line otherwise (an empty src re-fetches the page as a script). Events: topic-open{topic} (TOC clicks) · external-link{target}. Verify = runtime DOM check + umami postgres
   (static greps are false negatives).
+- Umami data-distinct-id (2026-10-25): inline pre-beacon snippet in frontend/index.html + app.html stamps a localStorage UUID (mcw_vid) onto the beacon tag → Umami
+  identify() dedupes visitors across IP churn; self-guards (SCRIPT tagName + data-website-id) so it inert-no-ops in builds that delete the __UMAMI_SRC__ line.
+  Verified by Dockerfile sed swap/delete simulation + node guard sim (/tmp/verify-kdg/verify.log); runtime check pending post-deploy.
 - Live diagram (2026-10-22, `/app.html` "Live service graph" — replaced the failed static corner topology): plain SVG+rAF, no libs; truthful edges (browser→nginx, loadgen→facts
   DIRECT bypassing nginx, nginx→facts/image, facts→counter+Wikipedia, image→Commons); particles whose density/speed track `rateRps`; per-run counters (sent/in-flight/replies/errors/rate); event
   ticker.
