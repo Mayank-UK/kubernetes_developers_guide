@@ -31,10 +31,32 @@ RUN apk add --no-cache curl \
  | sha256sum -c - \
  && apk del curl
 
-# *.html: the dashboard (index.html) + the guide page (guide.html).
+# *.html: the guide page (index.html, served at /) + the dashboard
+# (app.html). js/ carries the analytics wrapper (inert without the beacon
+# tag swapped in below, so it ships in every build unconditionally).
 COPY frontend/*.html /usr/share/nginx/html/
+COPY frontend/js/ /usr/share/nginx/html/js/
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY GUIDE.md /usr/share/nginx/html/GUIDE.md
+
+# Umami analytics (self-hosted, https://umami.mayankcodeworks.com): every
+# served page's <head> carries the beacon tag with __UMAMI_SRC__/__UMAMI_ID__
+# placeholder tokens. The values are PUBLIC (visible in the served page
+# source anyway), so they arrive as plain build args from repo Variables,
+# never secrets. BOTH must be non-empty to enable: the sed swaps the tokens
+# in every served page (| delimiter — the values contain / and :). With
+# either empty the beacon line is DELETED instead: an emptied src="" is NOT
+# a no-op (browsers resolve it to the page's own URL and re-fetch the
+# document as a script), so unconfigured builds — local preview, the lab
+# images, CI before the Variables exist — ship no tag at all and the pages'
+# analytics wrapper no-ops.
+ARG UMAMI_SRC=
+ARG UMAMI_ID=
+RUN if [ -n "$UMAMI_SRC" ] && [ -n "$UMAMI_ID" ]; then \
+        sed -i "s|__UMAMI_SRC__|${UMAMI_SRC}|g; s|__UMAMI_ID__|${UMAMI_ID}|g" /usr/share/nginx/html/*.html; \
+    else \
+        sed -i '/__UMAMI_SRC__/d' /usr/share/nginx/html/*.html; \
+    fi
 
 # Syntax-gate the shipped config at build time (this image's "test").
 # nginx -t resolves static proxy_pass upstreams at parse time, but

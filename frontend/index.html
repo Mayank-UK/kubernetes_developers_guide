@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>k8slab — the guide</title>
+<!-- Self-hosted Umami analytics: the wrapper (first) + the beacon tag
+     whose src/data-website-id are placeholder tokens swapped when the
+     frontend image is built with the UMAMI_* build args (see
+     .docker/frontend/Dockerfile). Builds without them ship this page with
+     NO beacon tag at all — the wrapper then no-ops. -->
+<script defer src="/js/analytics.js"></script>
+<script defer src="__UMAMI_SRC__" data-website-id="__UMAMI_ID__"></script>
 <!-- highlight.js theme is deliberately dark on BOTH modes (GitHub-style:
      dark code blocks read fine on light pages) and is only loaded from the
      image's /vendor dir — never a CDN. -->
@@ -148,6 +155,26 @@
 
   /* ---------- load + render the guide ---------- */
   var content = document.getElementById("content");
+
+  /* ---------- analytics (see /js/analytics.js) ---------- */
+  /* TOC jumps show which sections readers actually open; outbound clicks
+     in the rendered guide show what they follow. Both no-op unless the
+     image was built with the Umami args. */
+  var track = function (name, props) {
+    if (typeof window.trackEvent === "function") window.trackEvent(name, props);
+  };
+  document.getElementById("toc").addEventListener("click", function (e) {
+    var a = e.target.closest("a");
+    if (a) track("topic-open", { topic: a.textContent });
+  });
+  content.addEventListener("click", function (e) {
+    var a = e.target.closest("a");
+    if (!a) return;
+    if ((a.protocol === "http:" || a.protocol === "https:") && a.hostname !== location.hostname) {
+      track("external-link", { target: a.hostname });
+    }
+  });
+
   fetch("/GUIDE.md", { credentials: "same-origin" })
     .then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status + " fetching /GUIDE.md");

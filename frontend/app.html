@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>docker playground — facts · counter · image</title>
+<!-- Self-hosted Umami analytics: the wrapper (first) + the beacon tag
+     whose src/data-website-id are placeholder tokens swapped when the
+     frontend image is built with the UMAMI_* build args (see
+     .docker/frontend/Dockerfile). Builds without them ship this page with
+     NO beacon tag at all — the wrapper then no-ops. -->
+<script defer src="/js/analytics.js"></script>
+<script defer src="__UMAMI_SRC__" data-website-id="__UMAMI_ID__"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -582,6 +589,13 @@
     var topic = input.value.trim();
     if (!topic) { emptyMsg.hidden = false; input.focus(); return; }
     emptyMsg.hidden = true;
+
+    // analytics: the dashboard's headline interaction — a topic fanned out
+    // through the stack. No-op unless the image was built with the Umami
+    // args (see /js/analytics.js).
+    if (typeof window.trackEvent === 'function') {
+      window.trackEvent('topic-open', { topic: topic });
+    }
 
     showMsg(factsBody, 'asking facts…');
     showMsg(counterBody, 'waiting for facts…');
