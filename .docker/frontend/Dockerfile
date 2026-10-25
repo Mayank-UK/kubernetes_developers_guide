@@ -35,6 +35,7 @@ RUN apk add --no-cache curl \
 # (app.html). js/ carries the analytics wrapper (inert without the beacon
 # tag swapped in below, so it ships in every build unconditionally).
 COPY frontend/*.html /usr/share/nginx/html/
+COPY frontend/favicon.ico /usr/share/nginx/html/
 COPY frontend/js/ /usr/share/nginx/html/js/
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY GUIDE.md /usr/share/nginx/html/GUIDE.md
