@@ -74,3 +74,4 @@
     - CI/CD pipeline (family static variant) ✅ 2026-10-22 (see Current state CI/CD line). Follow-ups ⏳: create the GitHub repo (URL exists, repo doesn't), push master, add `production` environment secrets (VM_HOST/USER/PRIVATE_KEY/FINGERPRINT, GHCR_USER/GHCR_PULL_TOKEN), add the `kdg` caddy snippet on the VM, then first deploy (targets blue).
     - Create the Update Logs page on the site (e.g. `/updates` beside `/` and `/app.html`, linked from the guide's top bar), seed it with the 2026-10-24 "GUIDE.md rewritten as generic course" entry; every new major work gets a dated entry there from then on ⏳
 - Ops 2026-10-25: frontend image now COPYs favicon.ico (Umami needs /favicon.ico at root); deployed via green CI at 3dd8c58.
+- Ops 2026-10-29: favicon.ico regenerated via librsvg (qlmanage render was blank white). Deployed with CI at 316149a.
