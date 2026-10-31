@@ -53,6 +53,7 @@
   - Teardown anytime — `kind delete cluster --name k8slab`.
 
 ## Active tasks
+- Faro crash-telemetry beacon ✅ 2026-10-31 (commit 5d68b2b): static token-swap carrier (umami-mirrored) — frontend/js/faro.js loader + __FARO_URL__/__FARO_APP__ tokens, Dockerfile sed swap w/ beacon-free negative case, ci build-args. Docker-build pos/neg verified. Needs repo Variables FARO_URL + FARO_APP=kubernetesdevelopersguide.
 - ⏳ Update Logs page (`/updates` beside `/` and `/app.html`, linked from the guide's top bar), seeded with the 2026-10-24 "GUIDE.md rewritten as generic course" entry — task spec + the
   Update-Logs convention live in the Developer section below.
 
