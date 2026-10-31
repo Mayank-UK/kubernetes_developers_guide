@@ -59,6 +59,21 @@ RUN if [ -n "$UMAMI_SRC" ] && [ -n "$UMAMI_ID" ]; then \
         sed -i '/__UMAMI_SRC__/d' /usr/share/nginx/html/*.html; \
     fi
 
+# Faro crash telemetry (Grafana, public collector): every served page's
+# <head> also carries a faro-web-sdk beacon tag with __FARO_URL__/__FARO_APP__
+# placeholder tokens (the CDN src itself is a pinned constant in the HTML).
+# Same discipline as Umami: BOTH args non-empty -> sed swaps the tokens in
+# every served page; either empty -> the beacon line is DELETED so
+# unconfigured builds ship no CDN script tag at all and js/faro.js (shipped
+# unconditionally) inert-no-ops. Values are PUBLIC build args, never secrets.
+ARG FARO_URL=
+ARG FARO_APP=
+RUN if [ -n "$FARO_URL" ] && [ -n "$FARO_APP" ]; then \
+        sed -i "s|__FARO_URL__|${FARO_URL}|g; s|__FARO_APP__|${FARO_APP}|g" /usr/share/nginx/html/*.html; \
+    else \
+        sed -i '/__FARO_URL__/d' /usr/share/nginx/html/*.html; \
+    fi
+
 # Syntax-gate the shipped config at build time (this image's "test").
 # nginx -t resolves static proxy_pass upstreams at parse time, but
 # facts/image/loadgen only exist at runtime — and BuildKit mounts

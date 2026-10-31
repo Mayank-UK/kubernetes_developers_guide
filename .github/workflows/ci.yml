@@ -77,14 +77,17 @@ jobs:
                   # Fork PRs run with a read-only token — never attempt cache
                   # writes there; the expression yields '' (cache write off).
                   cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=frontend' || '' }}
-                  # Umami analytics (frontend only): build-time swap of the
-                  # beacon tokens in the served HTML. The values are PUBLIC
-                  # (visible in the served page source anyway) — repo
-                  # Variables first, secrets only as a fallback. Empty (not
-                  # configured yet) ships the pages without the beacon tag.
+                  # Umami analytics + Faro crash telemetry (frontend only):
+                  # build-time swap of the beacon tokens in the served HTML.
+                  # The values are PUBLIC (visible in the served page source
+                  # anyway) — repo Variables first, secrets only as a
+                  # fallback. Empty (not configured yet) ships the pages
+                  # without the beacon tags.
                   build-args: |
                       UMAMI_SRC=${{ vars.UMAMI_SRC || secrets.UMAMI_SRC || '' }}
                       UMAMI_ID=${{ vars.UMAMI_ID || secrets.UMAMI_ID || '' }}
+                      FARO_URL=${{ vars.FARO_URL || secrets.FARO_URL || '' }}
+                      FARO_APP=${{ vars.FARO_APP || secrets.FARO_APP || '' }}
 
             - name: Build counter image (local, amd64)
               uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -331,15 +334,17 @@ jobs:
                       ${{ matrix.image }}:master
                   cache-from: type=gha,scope=${{ matrix.service }}
                   cache-to: type=gha,mode=max,scope=${{ matrix.service }}
-                  # Umami analytics args exist only in the frontend image;
-                  # for the teaching backends the expressions yield '' and
-                  # the args go unconsumed (inert). Values are PUBLIC repo
+                  # Umami + Faro args exist only in the frontend image; for
+                  # the teaching backends the expressions yield '' and the
+                  # args go unconsumed (inert). Values are PUBLIC repo
                   # Variables (they end up visible in the served HTML
                   # anyway); secrets serve as a fallback. Empty = the pages
-                  # ship without the beacon tag.
+                  # ship without the beacon tags.
                   build-args: |
                       UMAMI_SRC=${{ matrix.service == 'frontend' && (vars.UMAMI_SRC || secrets.UMAMI_SRC || '') || '' }}
                       UMAMI_ID=${{ matrix.service == 'frontend' && (vars.UMAMI_ID || secrets.UMAMI_ID || '') || '' }}
+                      FARO_URL=${{ matrix.service == 'frontend' && (vars.FARO_URL || secrets.FARO_URL || '') || '' }}
+                      FARO_APP=${{ matrix.service == 'frontend' && (vars.FARO_APP || secrets.FARO_APP || '') || '' }}
 
     # GHCR tag retention: every master push leaves one sha-<7> version per
     # package. This job deletes sha-tagged versions beyond the newest 10 —
